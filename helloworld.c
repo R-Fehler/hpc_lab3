@@ -9,7 +9,7 @@ int main(int argc, char** argv) {
   // Get the number of processes
   ierr = MPI_Comm_size(MPI_COMM_WORLD, &num_threads);
 
-  if (num_threads != 2) {
+  if (0) {
     printf("ERROR np nicht durch 2 teilbar\n");
     MPI_Abort(MPI_COMM_WORLD, 1);
   }
@@ -23,31 +23,44 @@ int main(int argc, char** argv) {
   MPI_Get_processor_name(processor_name, &name_len);
 
   // Print off a hello world message
-  printf("Hello world from processor %s, rank %d out of %d processors\n",
-         processor_name, thread_id, num_threads);
+  // printf("Hello world from processor %s, rank %d out of %d processors\n",
+  //        processor_name, thread_id, num_threads);
 
-  char message = 'm';
+  int message = 0 - thread_id;
 
-  if (thread_id == 0) {
-    int destination = 1;
-    ierr = MPI_Send(&message, 1, MPI_CHAR, destination, 0, MPI_COMM_WORLD);
+  if (thread_id < num_threads - 1) {
+    int destination = num_threads - 1;
+    ierr = MPI_Send(&message, 1, MPI_INT, destination, 0, MPI_COMM_WORLD);
 
     if (ierr == MPI_SUCCESS) {
-      printf("thread nr %d send message %c to thread nr %d\n", thread_id,
+      printf("thread nr %d send message %d to thread nr %d\n", thread_id,
              message, destination);
     } else {
       printf("error beim senden");
     }
   } else {
-    char recvmessage;
+    int i, recvmessage, summe;
+    summe = 0;
     MPI_Status status;
-    ierr = MPI_Recv(&recvmessage, 1, MPI_CHAR, 0, 0, MPI_COMM_WORLD, &status);
+    printf("test");
+    for (i = 0; i != num_threads - 1; i++) {
+      printf("for nr %d \n", i);
+      ierr = MPI_Recv(&recvmessage, 1, MPI_INT, MPI_ANY_SOURCE, 0,
+                      MPI_COMM_WORLD, &status);
+      if (ierr == MPI_SUCCESS) {
+        printf("thread nr %d hat message %d empfangen\n", thread_id,
+               recvmessage);
+        summe += recvmessage;
+        printf("summe ist %d", summe);
+      }
 
-    if (ierr == MPI_SUCCESS) {
-      printf("thread nr %d hat message %c empfangen von thread nr 0\n",
-             thread_id, recvmessage);
+      else {
+        printf("error bei recv");
+        MPI_Abort(MPI_COMM_WORLD, 1);
+      }
     }
   }
+
   // Finalize the MPI environment.
   ierr = MPI_Finalize();
 }
