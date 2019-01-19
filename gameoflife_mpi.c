@@ -145,11 +145,22 @@ int main(int c, char** v) {
   int width, height, num_timesteps;
   int process_numX;
   int process_numY;
-
+  int arraysize_per_thread_x, arraysize_per_thread_y;
+  const int process_dim_array[2];
+  const int periodic_boundaries_true[] = {1, 1};
+  int coords_of_proc[2];  // cartesian coords of process;
+  int start_indices[2];
   if (c == 6) {
-    width = atoi(v[1]);   ///< read width + 2 boundary cells (low x, high x)
-    height = atoi(v[2]);  ///< read height + 2 boundary cells (low y, high y)
-    num_timesteps = atoi(v[3]);  ///< read timesteps
+    process_numX = atoi(v[1]);
+    process_numY = atoi(v[2]);
+    process_dim_array[X] = process_numX;
+    process_dim_array[Y] = process_numY;
+    arraysize_per_thread_x = atoi(v[3]);
+    arraysize_per_thread_y = atoi(v[4]);
+    num_timesteps = atoi(v[5]);  ///< read timesteps
+    width = arraysize_per_thread_x * process_numX + 2;
+    // plus zwei für period. RB
+    height = arraysize_per_thread_y * process_numY + 2;
 
     if (width <= 0) {
       width = 32;  ///< default width
@@ -157,8 +168,6 @@ int main(int c, char** v) {
     if (height <= 0) {
       height = 32;  ///< default height
     }
-    process_numX = atoi(v[4]);  ///< read number of processes in X
-    process_numY = atoi(v[5]);  ///< read number of processes in Y
 
   } else {
     myexit("Too less arguments");
@@ -179,16 +188,33 @@ int main(int c, char** v) {
   /* TODO Create a new cartesian communicator of the worker communicator and get
    * the information.
    */
+  int ierr=MPI_Cart_create(MPI_COMM_WORLD, 2, process_dim_array,
+                                     periodic_boundaries_true, 0, cart_comm));
+  if (MPI_SUCCESS == ierr)
+    printf("MPI CART Created");
+  else
+    printf("error");
+
+  MPI_Cart_coords(cart_comm, rank, 2, coords_of_proc);
 
   int gsizes[2] = {width,
                    height};  // global size of the domain without boundaries
-  int lsizes[2];
+  int local_sizes[2];
+  local_sizes[X] = arraysize_per_thread_x;
+  local_sizes[Y] = arraysize_per_thread_y;
 
+  51 /* global indices of the first element of the local array */
+      52 start_indices[X] = coords_of_proc[X] * local_sizes[X];
+  53 start_indices[Y] = coords_of_proc[Y] * local_sizes[Y];
   /* TODO create and commit a subarray as a new filetype to describe the local
    *      worker field as a part of the global field.
    *      Use the global variable 'filetype'.
    * HINT: use MPI_Type_create_subarray and MPI_Type_commit functions
    */
+
+  // MPI_Type_create_subarray(2, gsizes, local_sizes, start_indices,MPI_ORDER_C,
+  // MPI_FLOAT, &filetype);
+  // MPI_Type_commit(&filetype);
 
   /* TODO Create a derived datatype that describes the layout of the inner local
    * field in the memory buffer that includes the ghost layer (local field).
@@ -196,7 +222,7 @@ int main(int c, char** v) {
    *      Use the global variable 'memtype'.
    */
 
-  game(lsizes[X], lsizes[Y], num_timesteps, gsizes);
+  game(local_sizes[X], local_sizes[Y], num_timesteps, gsizes);
 
   MPI_Finalize();
 }
