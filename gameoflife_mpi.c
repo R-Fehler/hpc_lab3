@@ -92,52 +92,6 @@ void write_field(char* currentfield, int width, int height, int timestep) {
 void evolve(char* currentfield, char* newfield, int width, int height) {
   // TODO traverse through each voxel and implement game of live logic
   // HINT: avoid boundaries
-
-  int summe_der_Nachbarn;
-  for (int y = 1; y < height - 1; y++) {
-    for (int x = 1; x < width - 1; x++) {
-      summe_der_Nachbarn = 0;
-      int cell_index = calcIndex(width, x, y);
-      // printf("cellindex: %d \n", cell_index);
-      // Durchlaufen der 9 Felder des aktuellen "Stempels"
-      for (int x1 = -1; x1 <= 1; x1++) {
-        for (int y1 = -1; y1 <= 1; y1++) {
-          if (currentfield[calcIndex(width, (x + x1), (y + y1))])
-            summe_der_Nachbarn++;
-          //    printf("summe_der_Nachbarn: %d \n", summe_der_Nachbarn);
-        }
-      }
-      // Wert der untersuchten Zelle von der Summe der Felder abziehen
-
-      if (currentfield[cell_index]) {
-        summe_der_Nachbarn--;
-      }
-      // printf("summe_der_Nachbarn: %d \n", summe_der_Nachbarn);
-
-      // wenn zelle lebt wird 1 von der summe
-      // abgezogen
-
-      // if (currentfield[cell_index] == DEAD && summe_der_Nachbarn == 3) {
-      //   newfield[cell_index] = ALIVE;
-      // }
-
-      if (summe_der_Nachbarn <= 1) {
-        newfield[cell_index] = DEAD;
-      }
-
-      else if ((summe_der_Nachbarn == 2 && currentfield[cell_index]) == ALIVE ||
-               summe_der_Nachbarn == 3) {
-        newfield[cell_index] = ALIVE;
-      }
-
-      else if (summe_der_Nachbarn >= 4) {
-        newfield[cell_index] = DEAD;
-      } else {
-        newfield[cell_index] = DEAD;
-      }
-      // HINT: avoid boundaries
-    }
-  }
 }
 
 void filling_random(char* currentfield, int width, int height) {
