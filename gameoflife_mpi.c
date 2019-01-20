@@ -190,7 +190,7 @@ int main(int c, char** v) {
   const int process_dim_array[2] = {process_numX, process_numY};
 
   int ierr = MPI_Cart_create(MPI_COMM_WORLD, 2, process_dim_array,
-                             periodic_boundaries_true, 0, cart_comm);
+                             periodic_boundaries_true, 0, &cart_comm);
   if (MPI_SUCCESS == ierr)
     printf("MPI CART Created");
   else
