@@ -9,7 +9,7 @@
 #include <unistd.h>
 
 // OPTIONAL: comment this out for console output
-//#define CONSOLE_OUTPUT
+// #define CONSOLE_OUTPUT
 
 #define calcIndex(width, x, y) ((y) * (width) + (x))
 #define ALIVE 1
@@ -52,41 +52,46 @@ void create_vtk_header(char* header, int width, int height, int timestep) {
   snprintf(buffer, sizeof(buffer), "DIMENSIONS %d %d 1\n", width, height);
   strcat(header, buffer);
   strcat(header, "SPACING 1.0 1.0 1.0\n");
-  strcat(header, "ORIGIN 0 0 0\n");
+  strcat(header, "ORIGIN 0 0 0\n");  // multithread gebietsursprung
   snprintf(buffer, sizeof(buffer), "POINT_DATA %ld\n", width * height);
   strcat(header, buffer);
   strcat(header, "SCALARS data char 1\n");
   strcat(header, "LOOKUP_TABLE default\n");
 }
 
+void write_vtk_data(FILE* f, char* data, int length) {
+  if (fwrite(data, sizeof(char), length, f) != length) {
+    myexit("Could not write vtk-Data");
+  }
+}
+
 void write_field(char* currentfield, int width, int height, int timestep) {
+#ifdef CONSOLE_OUTPUT
+  printf("\033[H");
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++)
+      printf(ALIVE == currentfield[calcIndex(width, x, y)] ? "\033[07m  \033[m"
+                                                           : "  ");
+    printf("\033[E");
+  }
+  fflush(stdout);
+  printf("\ntimestep=%d", timestep);
+  usleep(80000);
+#else
   if (timestep == 0) {
-    if (rank_cart == 0) {
-      mkdir("./gol/", 0777);
-    }
+    mkdir("./gol/", 0777);
     create_vtk_header(vtk_header, width, height, timestep);
   }
-
-  printf("writing timestep %d\n", timestep);
+  // printf("writing timestep %d\n", timestep);
+  FILE* fp;  // The current file handle.
   char filename[1024];
   snprintf(filename, 1024, "./gol/gol-%05d.vtk", timestep);
-  MPI_Offset header_offset = (MPI_Offset)strlen(vtk_header);
-
-  /* TODO Create a new file handle for collective I/O
-   *      Use the global 'file' variable.
-   */
-  /* TODO Set the file view for the file handle using collective I/O
-   *
-   */
-  // rc = ...
-
-  /* TODO Write the data using collective I/O
-   *
-   */
-
-  /* TODO Close the file handle.
-   *
-   */
+  fp = fopen(filename, "w");
+  write_vtk_data(fp, vtk_header, strlen(vtk_header));
+  write_vtk_data(fp, currentfield, width * height);
+  fclose(fp);
+  // printf("finished writing timestep %d\n", timestep);
+#endif
 }
 
 void evolve(char* currentfield, char* newfield, int width, int height) {
