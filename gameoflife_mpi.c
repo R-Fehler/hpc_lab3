@@ -146,15 +146,14 @@ int main(int c, char** v) {
   int process_numX;
   int process_numY;
   int arraysize_per_thread_x, arraysize_per_thread_y;
-  const int process_dim_array[2];
+
   const int periodic_boundaries_true[] = {1, 1};
   int coords_of_proc[2];  // cartesian coords of process;
   int start_indices[2];
+  int start_gl_indices[2];
   if (c == 6) {
     process_numX = atoi(v[1]);
     process_numY = atoi(v[2]);
-    process_dim_array[X] = process_numX;
-    process_dim_array[Y] = process_numY;
     arraysize_per_thread_x = atoi(v[3]);
     arraysize_per_thread_y = atoi(v[4]);
     num_timesteps = atoi(v[5]);  ///< read timesteps
@@ -188,8 +187,10 @@ int main(int c, char** v) {
   /* TODO Create a new cartesian communicator of the worker communicator and get
    * the information.
    */
-  int ierr=MPI_Cart_create(MPI_COMM_WORLD, 2, process_dim_array,
-                                     periodic_boundaries_true, 0, cart_comm));
+  const int process_dim_array[2] = {process_numX, process_numY};
+
+  int ierr = MPI_Cart_create(MPI_COMM_WORLD, 2, process_dim_array,
+                             periodic_boundaries_true, 0, cart_comm);
   if (MPI_SUCCESS == ierr)
     printf("MPI CART Created");
   else
@@ -202,26 +203,32 @@ int main(int c, char** v) {
   int local_sizes[2];
   local_sizes[X] = arraysize_per_thread_x;
   local_sizes[Y] = arraysize_per_thread_y;
-
-  51 /* global indices of the first element of the local array */
-      52 start_indices[X] = coords_of_proc[X] * local_sizes[X];
-  53 start_indices[Y] = coords_of_proc[Y] * local_sizes[Y];
+  int local_glayer_sizes[] = {arraysize_per_thread_x + 2,
+                              arraysize_per_thread_y + 2};
+  /* global indices of the first element of the local array */
+  start_indices[X] = coords_of_proc[X] * local_sizes[X];
+  start_indices[Y] = coords_of_proc[Y] * local_sizes[Y];
+  start_gl_indices[X] = start_indices[X] - 1;
+  start_gl_indices[Y] = start_indices[Y] - 1;
   /* TODO create and commit a subarray as a new filetype to describe the local
    *      worker field as a part of the global field.
    *      Use the global variable 'filetype'.
    * HINT: use MPI_Type_create_subarray and MPI_Type_commit functions
    */
 
-  // MPI_Type_create_subarray(2, gsizes, local_sizes, start_indices,MPI_ORDER_C,
-  // MPI_FLOAT, &filetype);
-  // MPI_Type_commit(&filetype);
+  MPI_Type_create_subarray(2, gsizes, local_sizes, start_indices, MPI_ORDER_C,
+                           MPI_FLOAT, &filetype);
+  MPI_Type_commit(&filetype);
 
   /* TODO Create a derived datatype that describes the layout of the inner local
    * field in the memory buffer that includes the ghost layer (local field).
    *      This is another subarray datatype!
    *      Use the global variable 'memtype'.
    */
+  MPI_Type_create_subarray(2, gsizes, local_glayer_sizes, start_gl_indices,
+                           MPI_ORDER_C, MPI_FLOAT, &memtype);
 
+  MPI_Type_commit(&memtype);
   game(local_sizes[X], local_sizes[Y], num_timesteps, gsizes);
 
   MPI_Finalize();
