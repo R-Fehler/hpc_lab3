@@ -85,7 +85,7 @@ void write_field(char* currentfield, int width, int height, int timestep) {
   // printf("writing timestep %d\n", timestep);
   FILE* fp;  // The current file handle.
   char filename[1024];
-  snprintf(filename, 1024, "./gol/gol-%05d.vtk", timestep);
+  snprintf(filename, 1024, "./gol/gol-%05d.vtk%d", timestep, rank);
   fp = fopen(filename, "w");
   write_vtk_data(fp, vtk_header, strlen(vtk_header));
   write_vtk_data(fp, currentfield, width * height);
