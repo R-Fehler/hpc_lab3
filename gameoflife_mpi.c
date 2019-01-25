@@ -252,18 +252,20 @@ int main(int c, char** v) {
     printf("MPI CART Created");
   else
     printf("error");
-
+  MPI_Comm_rank(cart_comm, &rank_cart);
   MPI_Cart_coords(cart_comm, rank, 2, coords_of_proc);
 
-  const int gsizes[2] = {
-      width, height};  // global size of the domain without boundaries
+  const int gsizes[2] = {width, height};
+  // global size of the domain without boundaries
   const int local_sizes[2] = {arraysize_per_thread_x - 2,
                               arraysize_per_thread_y - 2};
   int local_glayer_sizes[2] = {arraysize_per_thread_x, arraysize_per_thread_y};
   /* global indices of the first element of the local array */
-  start_ghost_indices[X] =
-      coords_of_proc[X] * local_sizes[X];  // FEHLER bei start... -1
+
+  start_ghost_indices[X] = coords_of_proc[X] * local_sizes[X];
+  // FEHLER bei start... -1
   start_ghost_indices[Y] = coords_of_proc[Y] * local_sizes[Y];
+
   start_indices[X] = start_ghost_indices[X] + 1;
   start_indices[Y] = start_ghost_indices[Y] + 1;
   /* TODO create and commit a subarray as a new filetype to describe the local
