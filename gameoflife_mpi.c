@@ -42,7 +42,7 @@ void myexit(const char* s, ...) {
 
 char vtk_header[2048];
 void create_vtk_header(char* header, int width, int height, int timestep,
-                       const int* start_indices) {
+                       const int* start_worker_inner_offset) {
   char buffer[1024];
   header[0] = '\0';
   strcat(header, "# vtk DataFile Version 3.0\n");
@@ -54,8 +54,9 @@ void create_vtk_header(char* header, int width, int height, int timestep,
   strcat(header, buffer);
   strcat(header, "SPACING 1.0 1.0 1.0\n");
   strcat(header, "ORIGIN 0 0 0\n");
-  // snprintf(header, sizeof(header), "ORIGIN %d %d 0\n", start_indices[X],
-  //          start_indices[Y]);
+  // snprintf(header, sizeof(header), "ORIGIN %d %d 0\n",
+  // start_worker_inner_offset[X],
+  //          start_worker_inner_offset[Y]);
   // multithread gebietsursprung
   snprintf(buffer, sizeof(buffer), "POINT_DATA %ld\n", width * height);
   strcat(header, buffer);
@@ -70,7 +71,7 @@ void write_vtk_data(FILE* f, char* data, int length) {
 }
 
 void write_field(char* currentfield, int width, int height, int timestep,
-                 const int* start_indices) {
+                 const int* start_worker_inner_offset) {
 #ifdef CONSOLE_OUTPUT
   printf("\033[H");
   for (int y = 0; y < height; y++) {
@@ -85,7 +86,8 @@ void write_field(char* currentfield, int width, int height, int timestep,
 #else
   if (timestep == 0) {
     mkdir("./gol/", 0777);
-    create_vtk_header(vtk_header, width, height, timestep, start_indices);
+    create_vtk_header(vtk_header, width, height, timestep,
+                      start_worker_inner_offset);
   }
   // printf("writing timestep %d\n", timestep);
   FILE* fp;  // The current file handle.
@@ -99,6 +101,18 @@ void write_field(char* currentfield, int width, int height, int timestep,
 #endif
 }
 
+void evolve_rank(char* currentfield, char* newfield, int width, int height) {
+  // TODO traverse through each voxel and implement game of live logic
+  // HINT: avoid boundaries
+
+  int summe_der_Nachbarn;
+  for (int y = 1; y < height - 1; y++) {
+    for (int x = 1; x < width - 1; x++) {
+      int cell_index = calcIndex(width, x, y);
+      newfield[cell_index] = rank;
+    }
+  }
+}
 void evolve(char* currentfield, char* newfield, int width, int height) {
   // TODO traverse through each voxel and implement game of live logic
   // HINT: avoid boundaries
@@ -174,20 +188,22 @@ void swap_field(char** currentfield, char** newfield) {
   *newfield = temp;
 }
 
-void game(int width, int height, int num_timesteps, const int gsizes[2],
-          const int* start_indices) {
+void game(int width, int height, int num_timesteps, const int global_sizes[2],
+          const int* start_worker_inner_offset) {
   char* currentfield = calloc(width * height, sizeof(char));
   char* newfield = calloc(width * height, sizeof(char));
 
   // TODO 1: use your favorite filling
-  filling_runner(currentfield, width, height);
+  // filling_runner(currentfield, width, height);
+  filling_random(currentfield, width, height);
   int time = 0;
-  write_field(currentfield, gsizes[X], gsizes[Y], time, start_indices);
+  write_field(currentfield, width, height, time, start_worker_inner_offset);
 
   for (time = 1; time <= num_timesteps; time++) {
     // TODO 2: implement evolve function (see above)
     evolve(currentfield, newfield, width, height);
-    write_field(newfield, gsizes[X], gsizes[Y], time, start_indices);
+    // evolve_rank(currentfield, newfield, width, height);
+    write_field(newfield, width, height, time, start_worker_inner_offset);
     // TODO 3: implement SWAP of the fields
     swap_field(&currentfield, &newfield);
   }
@@ -202,21 +218,21 @@ int main(int c, char** v) {
   int width, height, num_timesteps;
   int process_numX;
   int process_numY;
-  int arraysize_per_thread_x, arraysize_per_thread_y;
+  int worker_size_N_in_x, worker_size_N_in_y;
 
   const int periodic_boundaries_true[] = {0, 0};
   int coords_of_proc[2];  // cartesian coords of process;
-  int start_indices[2];
-  int start_ghost_indices[2];
+  int start_worker_inner_offset[2];
+  int start_worker_offset[2];
   if (c == 6) {
     process_numX = atoi(v[1]);
     process_numY = atoi(v[2]);
-    arraysize_per_thread_x = atoi(v[3]);
-    arraysize_per_thread_y = atoi(v[4]);
+    worker_size_N_in_x = atoi(v[3]);
+    worker_size_N_in_y = atoi(v[4]);
     num_timesteps = atoi(v[5]);  ///< read timesteps
-    width = arraysize_per_thread_x * process_numX;
+    width = worker_size_N_in_x * process_numX;
     // plus zwei für period. RB
-    height = arraysize_per_thread_y * process_numY;
+    height = worker_size_N_in_y * process_numY;
 
     if (width <= 0) {
       width = 32;  ///< default width
@@ -241,8 +257,8 @@ int main(int c, char** v) {
     myexit("ERROR: %d MPI processes needed.\n", process_numX * process_numY);
   }
 
-  /* TODO Create a new cartesian communicator of the worker communicator and get
-   * the information.
+  /* TODO Create a new cartesian communicator of the worker communicator and
+   * get the information.
    */
   const int process_dim_array[2] = {process_numX, process_numY};
 
@@ -253,40 +269,44 @@ int main(int c, char** v) {
   else
     printf("error");
   MPI_Comm_rank(cart_comm, &rank_cart);
-  MPI_Cart_coords(cart_comm, rank, 2, coords_of_proc);
+  MPI_Cart_coords(cart_comm, rank_cart, 2, coords_of_proc);
 
-  const int gsizes[2] = {width, height};
+  const int global_sizes[2] = {
+      worker_size_N_in_x * process_numX + 2,
+      worker_size_N_in_y * process_numY + 2};  // 2 fuer randaustausch
   // global size of the domain without boundaries
-  const int local_sizes[2] = {arraysize_per_thread_x - 2,
-                              arraysize_per_thread_y - 2};
-  int local_glayer_sizes[2] = {arraysize_per_thread_x, arraysize_per_thread_y};
+  const int worker_inner_sizes[2] = {worker_size_N_in_x - 2,
+                                     worker_size_N_in_y - 2};
+  int worker_sizes[2] = {worker_size_N_in_x, worker_size_N_in_y};
   /* global indices of the first element of the local array */
 
-  start_ghost_indices[X] = coords_of_proc[X] * local_sizes[X];
+  start_worker_offset[X] = coords_of_proc[X] * worker_inner_sizes[X];
   // FEHLER bei start... -1
-  start_ghost_indices[Y] = coords_of_proc[Y] * local_sizes[Y];
+  start_worker_offset[Y] = coords_of_proc[Y] * worker_inner_sizes[Y];
 
-  start_indices[X] = start_ghost_indices[X] + 1;
-  start_indices[Y] = start_ghost_indices[Y] + 1;
+  start_worker_inner_offset[X] = 1;
+  // warum absolutes 1 und nicht relatives coords +1
+  start_worker_inner_offset[Y] = 1;
   /* TODO create and commit a subarray as a new filetype to describe the local
    *      worker field as a part of the global field.
    *      Use the global variable 'filetype'.
    * HINT: use MPI_Type_create_subarray and MPI_Type_commit functions
    */
-  MPI_Type_create_subarray(2, gsizes, local_sizes, start_indices, MPI_ORDER_C,
-                           MPI_CHAR, &filetype);
+  MPI_Type_create_subarray(2, worker_sizes, worker_inner_sizes,
+                           start_worker_offset, MPI_ORDER_C, MPI_CHAR,
+                           &filetype);
   MPI_Type_commit(&filetype);
-  /* TODO Create a derived datatype that describes the layout of the inner local
-   * field in the memory buffer that includes the ghost layer (local field).
-   *      This is another subarray datatype!
-   *      Use the global variable 'memtype'.
+  /* TODO Create a derived datatype that describes the layout of the inner
+   * local field in the memory buffer that includes the ghost layer (local
+   * field). This is another subarray datatype! Use the global variable
+   * 'memtype'.
    */
-  printf("test2");
-  MPI_Type_create_subarray(2, gsizes, local_glayer_sizes, start_ghost_indices,
+  MPI_Type_create_subarray(2, global_sizes, worker_sizes, start_worker_offset,
                            MPI_ORDER_C, MPI_CHAR, &memtype);  // ERROR
   MPI_Type_commit(&memtype);
-  printf("test2.2");
-  game(local_sizes[X], local_sizes[Y], num_timesteps, gsizes, start_indices);
+
+  game(worker_inner_sizes[X], worker_inner_sizes[Y], num_timesteps,
+       worker_sizes, start_worker_inner_offset);
 
   MPI_Finalize();
 }
