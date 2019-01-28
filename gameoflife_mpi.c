@@ -21,13 +21,16 @@
 int rank = 0;       // The current MPI rank in the global communicator.
 int rank_cart = 0;  // The current MPI rank in the cart communicator.
 int num_tasks;      // The number of processes
+int worker_inner_sizes[2];
+int worker_sizes[2];
+int global_sizes[2];
 
 MPI_Datatype filetype;  //
 MPI_Comm cart_comm;     // Communicator for the cartesian grid
 MPI_File file;          // A shared file pointer
 MPI_Datatype memtype;   // A new created type for the inner and outer data
                         // including the ghost layer
-
+MPI_Status status;
 void myexit(const char* s, ...) {
   va_list args;
   va_start(args, s);
@@ -39,10 +42,8 @@ void myexit(const char* s, ...) {
   MPI_Finalize();
   exit(EXIT_FAILURE);
 }
-
 char vtk_header[2048];
-void create_vtk_header(char* header, int width, int height, int timestep,
-                       const int* start_worker_inner_offset) {
+void create_vtk_header(char* header, int width, int height, int timestep) {
   char buffer[1024];
   header[0] = '\0';
   strcat(header, "# vtk DataFile Version 3.0\n");
@@ -54,50 +55,50 @@ void create_vtk_header(char* header, int width, int height, int timestep,
   strcat(header, buffer);
   strcat(header, "SPACING 1.0 1.0 1.0\n");
   strcat(header, "ORIGIN 0 0 0\n");
-  // snprintf(header, sizeof(header), "ORIGIN %d %d 0\n",
-  // start_worker_inner_offset[X],
-  //          start_worker_inner_offset[Y]);
-  // multithread gebietsursprung
   snprintf(buffer, sizeof(buffer), "POINT_DATA %ld\n", width * height);
   strcat(header, buffer);
   strcat(header, "SCALARS data char 1\n");
   strcat(header, "LOOKUP_TABLE default\n");
 }
 
-void write_vtk_data(FILE* f, char* data, int length) {
-  if (fwrite(data, sizeof(char), length, f) != length) {
-    myexit("Could not write vtk-Data");
-  }
-}
-
-void write_field(char* currentfield, int width, int height, int timestep,
-                 const int* start_worker_inner_offset) {
-#ifdef CONSOLE_OUTPUT
-  printf("\033[H");
-  for (int y = 0; y < height; y++) {
-    for (int x = 0; x < width; x++)
-      printf(ALIVE == currentfield[calcIndex(width, x, y)] ? "\033[07m  \033[m"
-                                                           : "  ");
-    printf("\033[E");
-  }
-  fflush(stdout);
-  printf("\ntimestep=%d", timestep);
-  usleep(80000);
-#else
+void write_field(char* currentfield, int width, int height, int timestep) {
   if (timestep == 0) {
-    create_vtk_header(vtk_header, width, height, timestep,
-                      start_worker_inner_offset);
+    if (rank_cart == 0) {
+      mkdir("./gol/", 0777);
+    }
+    create_vtk_header(vtk_header, width, height, timestep);
   }
-  // printf("writing timestep %d\n", timestep);
-  FILE* fp;  // The current file handle.
+
+  printf("writing timestep %d\n", timestep);
   char filename[1024];
-  snprintf(filename, 1024, "./gol/gol-%05d.vtk.%d", timestep, rank);
-  fp = fopen(filename, "w");
-  write_vtk_data(fp, vtk_header, strlen(vtk_header));
-  write_vtk_data(fp, currentfield, width * height);
-  fclose(fp);
-  // printf("finished writing timestep %d\n", timestep);
-#endif
+  snprintf(filename, 1024, "./gol/gol-%05d.vtk", timestep);
+  MPI_Offset header_offset = (MPI_Offset)strlen(vtk_header);
+
+  /* TODO Create a new file handle for collective I/O
+   *      Use the global 'file' variable.
+   */
+  MPI_File_open(MPI_COMM_WORLD, filename, MPI_MODE_CREATE | MPI_MODE_WRONLY,
+                MPI_INFO_NULL, &file);
+  if (rank_cart == 0) {
+    MPI_File_write(file, vtk_header, strlen(vtk_header), MPI_CHAR,
+                   MPI_STATUS_IGNORE);
+  }
+  /* TODO Set the file view for the file handle using collective I/O
+   *
+   */
+  // rc = ...
+  MPI_File_set_view(file, header_offset, MPI_CHAR, filetype, "native",
+                    MPI_INFO_NULL);
+
+  /* TODO Write the data using collective I/O
+   *
+   */
+  MPI_File_write_all(file, currentfield, sizeof(currentfield) / sizeof(char),
+                     filetype, &status);
+  /* TODO Close the file handle.
+   *
+   */
+  MPI_File_close(&file);
 }
 
 void evolve_rank(char* currentfield, char* newfield, int width, int height) {
@@ -196,13 +197,13 @@ void game(int width, int height, int num_timesteps,
   // filling_runner(currentfield, width, height);
   filling_random(currentfield, width, height);
   int time = 0;
-  write_field(currentfield, width, height, time, start_worker_inner_offset);
+  write_field(currentfield, width, height, time);
 
   for (time = 1; time <= num_timesteps; time++) {
     // TODO 2: implement evolve function (see above)
-    evolve(currentfield, newfield, width, height);
-    // evolve_rank(currentfield, newfield, width, height);
-    write_field(newfield, width, height, time, start_worker_inner_offset);
+    // evolve(currentfield, newfield, width, height);
+    evolve_rank(currentfield, newfield, width, height);
+    write_field(newfield, width, height, time);
     // TODO 3: implement SWAP of the fields
     swap_field(&currentfield, &newfield);
   }
@@ -272,13 +273,14 @@ int main(int c, char** v) {
   MPI_Comm_rank(cart_comm, &rank_cart);
   MPI_Cart_coords(cart_comm, rank_cart, 2, coords_of_proc);
 
-  const int global_sizes[2] = {
-      worker_size_N_in_x * process_numX + 2,
-      worker_size_N_in_y * process_numY + 2};  // 2 fuer randaustausch
+  global_sizes[0] = (worker_size_N_in_x * process_numX) + 2;
+  global_sizes[1] =
+      (worker_size_N_in_y * process_numY) + 2;  // 2 fuer randaustausch
   // global size of the domain without boundaries
-  const int worker_inner_sizes[2] = {worker_size_N_in_x - 2,
-                                     worker_size_N_in_y - 2};
-  int worker_sizes[2] = {worker_size_N_in_x, worker_size_N_in_y};
+  worker_inner_sizes[0] = worker_size_N_in_x - 2;
+  worker_inner_sizes[1] = worker_size_N_in_y - 2;
+  worker_sizes[0] = worker_size_N_in_x;
+  worker_sizes[1] = worker_size_N_in_y;
   /* global indices of the first element of the local array */
 
   start_worker_offset[X] = coords_of_proc[X] * worker_inner_sizes[X];
