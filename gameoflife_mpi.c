@@ -85,14 +85,13 @@ void write_field(char* currentfield, int width, int height, int timestep,
   usleep(80000);
 #else
   if (timestep == 0) {
-    mkdir("./gol/", 0777);
     create_vtk_header(vtk_header, width, height, timestep,
                       start_worker_inner_offset);
   }
   // printf("writing timestep %d\n", timestep);
   FILE* fp;  // The current file handle.
   char filename[1024];
-  snprintf(filename, 1024, "./gol/gol-%05d.vtk", timestep);
+  snprintf(filename, 1024, "./gol/gol-%05d.vtk.%d", timestep, rank);
   fp = fopen(filename, "w");
   write_vtk_data(fp, vtk_header, strlen(vtk_header));
   write_vtk_data(fp, currentfield, width * height);
@@ -188,7 +187,7 @@ void swap_field(char** currentfield, char** newfield) {
   *newfield = temp;
 }
 
-void game(int width, int height, int num_timesteps, const int global_sizes[2],
+void game(int width, int height, int num_timesteps,
           const int* start_worker_inner_offset) {
   char* currentfield = calloc(width * height, sizeof(char));
   char* newfield = calloc(width * height, sizeof(char));
@@ -214,7 +213,9 @@ void game(int width, int height, int num_timesteps, const int global_sizes[2],
 
 int main(int c, char** v) {
   MPI_Init(&c, &v);
-
+  if (rank == 0) {
+    mkdir("./gol/", 0777);
+  }
   int width, height, num_timesteps;
   int process_numX;
   int process_numY;
@@ -264,10 +265,10 @@ int main(int c, char** v) {
 
   int ierr = MPI_Cart_create(MPI_COMM_WORLD, 2, process_dim_array,
                              periodic_boundaries_true, 0, &cart_comm);
-  if (MPI_SUCCESS == ierr)
-    printf("MPI CART Created");
-  else
-    printf("error");
+  // if (MPI_SUCCESS == ierr)
+  //   printf("MPI CART Created");
+  // else
+  //   printf("error");
   MPI_Comm_rank(cart_comm, &rank_cart);
   MPI_Cart_coords(cart_comm, rank_cart, 2, coords_of_proc);
 
@@ -292,8 +293,26 @@ int main(int c, char** v) {
    *      Use the global variable 'filetype'.
    * HINT: use MPI_Type_create_subarray and MPI_Type_commit functions
    */
+  printf(
+      "MEMTYPE %d: workersize %d %d, worker_inner_sizes %d %d, start %d %d\n",
+      rank, worker_sizes[X], worker_sizes[Y], worker_inner_sizes[X],
+      worker_inner_sizes[Y], start_worker_inner_offset[X],
+      start_worker_inner_offset[Y]);
+  // sleep(100);
+  printf(
+      "FILETYPE %d: globalsizes %d %d, worker_inner_sizes %d %d, start %d %d\n",
+      rank, global_sizes[X], global_sizes[Y], worker_sizes[X], worker_sizes[Y],
+      start_worker_offset[X], start_worker_offset[Y]);
+  //========= MEMTYPE =================
   MPI_Type_create_subarray(2, worker_sizes, worker_inner_sizes,
-                           start_worker_offset, MPI_ORDER_C, MPI_CHAR,
+                           start_worker_inner_offset, MPI_ORDER_FORTRAN,
+                           MPI_CHAR,
+                           &memtype);  // ERROR
+  MPI_Type_commit(&memtype);
+
+  //========  FILETYPE ================
+  MPI_Type_create_subarray(2, global_sizes, worker_inner_sizes,
+                           start_worker_offset, MPI_ORDER_FORTRAN, MPI_CHAR,
                            &filetype);
   MPI_Type_commit(&filetype);
   /* TODO Create a derived datatype that describes the layout of the inner
@@ -301,12 +320,9 @@ int main(int c, char** v) {
    * field). This is another subarray datatype! Use the global variable
    * 'memtype'.
    */
-  MPI_Type_create_subarray(2, global_sizes, worker_sizes, start_worker_offset,
-                           MPI_ORDER_C, MPI_CHAR, &memtype);  // ERROR
-  MPI_Type_commit(&memtype);
 
   game(worker_inner_sizes[X], worker_inner_sizes[Y], num_timesteps,
-       worker_sizes, start_worker_inner_offset);
+       start_worker_inner_offset);
 
   MPI_Finalize();
 }
