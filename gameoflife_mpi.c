@@ -132,47 +132,22 @@ void evolve_rank(char* currentfield, char* newfield, int width, int height) {
 void evolve(char* currentfield, char* newfield, int width, int height) {
   // TODO traverse through each voxel and implement game of live logic
   // HINT: avoid boundaries
-  // TODO kommis haben globale starts[]ends[]:
-  /*
-    starts[X] = start_indices_file[X];
-    starts[Y] = start_indices_file[Y];
 
-    ends[X] = starts[X] + size_file[X];
-    ends[Y] = starts[Y] + size_file[Y];
-    als lokale width und height begrenzung
-
-    trotzdem glsize width und height als index berechnung ??
-    int yi = y * width;
-    char *nyi = ci + x + (ny * width);
-    etc....
-    */
   int summe_der_Nachbarn;
   for (int y = 1; y < height - 1; y++) {
     for (int x = 1; x < width - 1; x++) {
       summe_der_Nachbarn = 0;
       int cell_index = calcIndex(width, x, y);
-      // printf("cellindex: %d \n", cell_index);
-      // Durchlaufen der 9 Felder des aktuellen "Stempels"
       for (int x1 = -1; x1 <= 1; x1++) {
         for (int y1 = -1; y1 <= 1; y1++) {
           if (currentfield[calcIndex(width, (x + x1), (y + y1))])
             summe_der_Nachbarn++;
-          //    printf("summe_der_Nachbarn: %d \n", summe_der_Nachbarn);
         }
       }
-      // Wert der untersuchten Zelle von der Summe der Felder abziehen
 
       if (currentfield[cell_index]) {
         summe_der_Nachbarn--;
       }
-      // printf("summe_der_Nachbarn: %d \n", summe_der_Nachbarn);
-
-      // wenn zelle lebt wird 1 von der summe
-      // abgezogen
-
-      // if (currentfield[cell_index] == DEAD && summe_der_Nachbarn == 3) {
-      //   newfield[cell_index] = ALIVE;
-      // }
 
       if (summe_der_Nachbarn <= 1) {
         newfield[cell_index] = DEAD;
@@ -443,9 +418,7 @@ int main(int c, char** v) {
    * 'memtype'.
    */
 
-  game(worker_sizes[X], worker_sizes[Y], num_timesteps,
-       global_sizes);  // TODO kommis haben worker_sizes[] als w
-                       // und h und als 4ten parameter global sizes
+  game(worker_sizes[X], worker_sizes[Y], num_timesteps, global_sizes);
 
   MPI_Finalize();
 }
