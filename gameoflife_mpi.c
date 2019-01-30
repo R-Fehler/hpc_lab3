@@ -77,7 +77,9 @@ void write_field(char* currentfield, int width, int height, int timestep) {
   /* TODO Create a new file handle for collective I/O
    *      Use the global 'file' variable.
    */
-  MPI_File_open(MPI_COMM_WORLD, filename, MPI_MODE_CREATE | MPI_MODE_WRONLY,
+  MPI_File_delete(filename, MPI_INFO_NULL);
+
+  MPI_File_open(cart_comm, filename, MPI_MODE_CREATE | MPI_MODE_WRONLY,
                 MPI_INFO_NULL, &file);
   if (rank_cart == 0) {
     MPI_File_write(file, vtk_header, strlen(vtk_header), MPI_CHAR,
@@ -87,14 +89,21 @@ void write_field(char* currentfield, int width, int height, int timestep) {
    *
    */
   // rc = ...
-  MPI_File_set_view(file, header_offset, MPI_CHAR, filetype, "native",
+  int rc;
+  rc = MPI_File_set_view(file, header_offset, MPI_CHAR, filetype, "native",
                     MPI_INFO_NULL);
-
+  if (rc != MPI_SUCCESS) {
+    myexit("Could not write vtk-Data");
+  }
+  rc = MPI_File_write_all(file, currentfield, 1, memtype, MPI_STATUS_IGNORE);
+  if (rc != MPI_SUCCESS) {
+    myexit("write all failed");
+  }
   /* TODO Write the data using collective I/O
    *
    */
-  MPI_File_write_all(file, currentfield, sizeof(currentfield) / sizeof(char),
-                     filetype, &status);
+  // MPI_File_write_all(file, currentfield, sizeof(currentfield) / sizeof(char),
+  //                    filetype, &status);
   /* TODO Close the file handle.
    *
    */
