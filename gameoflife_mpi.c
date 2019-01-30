@@ -24,13 +24,20 @@ int num_tasks;      // The number of processes
 int worker_inner_sizes[2];
 int worker_sizes[2];
 int global_sizes[2];
+int coords_of_proc[2];
+int process_dim_array[2];
+int periodic_boundaries_true[] = {1, 1};  // check
 
 MPI_Datatype filetype;  //
 MPI_Comm cart_comm;     // Communicator for the cartesian grid
 MPI_File file;          // A shared file pointer
 MPI_Datatype memtype;   // A new created type for the inner and outer data
                         // including the ghost layer
+MPI_Datatype ghost_layer[4];
+MPI_Datatype inner_layer[4];
 MPI_Status status;
+MPI_Request req;
+
 void myexit(const char* s, ...) {
   va_list args;
   va_start(args, s);
@@ -91,7 +98,7 @@ void write_field(char* currentfield, int width, int height, int timestep) {
   // rc = ...
   int rc;
   rc = MPI_File_set_view(file, header_offset, MPI_CHAR, filetype, "native",
-                    MPI_INFO_NULL);
+                         MPI_INFO_NULL);
   if (rc != MPI_SUCCESS) {
     myexit("Could not write vtk-Data");
   }
@@ -125,7 +132,20 @@ void evolve_rank(char* currentfield, char* newfield, int width, int height) {
 void evolve(char* currentfield, char* newfield, int width, int height) {
   // TODO traverse through each voxel and implement game of live logic
   // HINT: avoid boundaries
+  // TODO kommis haben globale starts[]ends[]:
+  /*
+    starts[X] = start_indices_file[X];
+    starts[Y] = start_indices_file[Y];
 
+    ends[X] = starts[X] + size_file[X];
+    ends[Y] = starts[Y] + size_file[Y];
+    als lokale width und height begrenzung
+
+    trotzdem glsize width und height als index berechnung ??
+    int yi = y * width;
+    char *nyi = ci + x + (ny * width);
+    etc....
+    */
   int summe_der_Nachbarn;
   for (int y = 1; y < height - 1; y++) {
     for (int x = 1; x < width - 1; x++) {
@@ -197,8 +217,96 @@ void swap_field(char** currentfield, char** newfield) {
   *newfield = temp;
 }
 
-void game(int width, int height, int num_timesteps,
-          const int* start_worker_inner_offset) {
+void exchange(char* currentfield, int width, int height) {
+  int dims[2];
+  int periods[2];
+  int coords[2];
+  int dim;
+  int i;
+  int r0, r1;  // ranks für sendrcv source und dest.
+  int sub_size_up_down[2];
+  int sub_size_left_right[2];
+  sub_size_up_down[X] = worker_sizes[X];
+  sub_size_up_down[Y] = 1;
+  sub_size_left_right[X] = 1;
+  sub_size_left_right[Y] = worker_sizes[Y];
+  int start_ind_ghost[4][2] = {{0, 0},
+                               {0, 0},
+                               {0, worker_sizes[Y] - 1},
+                               {worker_sizes[X] - 1, 0}};  /////////
+  int start_ind_inner[4][2] = {{0, 1},
+                               {1, 0},
+                               {0, worker_sizes[Y] - 2},
+                               {worker_sizes[X] - 2, 0}};  // TODO evtl falsch
+
+  // GLayer
+  for (int z = 0; z < 4; z++) {
+    MPI_Type_create_subarray(1, worker_sizes, sub_size_up_down,
+                             start_ind_ghost[z], 1, MPI_CHAR, &ghost_layer[z]);
+    MPI_Type_commit(&ghost_layer[z]);
+  }
+  // inner Layer
+  for (int z = 0; z < 4; z++) {
+    MPI_Type_create_subarray(1, worker_sizes, sub_size_left_right,
+                             start_ind_inner[z], 1, MPI_CHAR, &inner_layer[z]);
+    MPI_Type_commit(&inner_layer[z]);
+  }
+  ///////////
+  MPI_Cart_get(cart_comm, 2, dims, periods, coords);
+  for (dim = 0, i = 0; dim < dims; ++dim) {
+    MPI_Cart_shift(cart_comm, dim, 1, &r0, &r1);
+    MPI_Isend(&currentfield, 1, inner_layer[0], r0, MPI_ANY_TAG, cart_comm,
+              &req);
+    MPI_Irecv(&currentfield, 1, ghost_layer[0], r0, MPI_ANY_TAG, cart_comm,
+              &req);
+
+    //  ++i;
+    // wieviele req[i] brauche ich?? TODO
+    MPI_Isend(&currentfield, 1, inner_layer[2], r1, MPI_ANY_TAG, cart_comm,
+              &req);  // eigtl. &req[i]
+    MPI_Irecv(&currentfield, 1, ghost_layer[2], r1, MPI_ANY_TAG, cart_comm,
+              &req);
+    // MPI_Isend(sendbuf + i * sendcount * extent(sendtype), sendcount,
+    // sendtype,
+    //           r1, ..., cart_comm, &req[i]);
+    // MPI_Irecv(recvbuf + i * recvcount * extent(recvtype), recvcount,
+    // recvtype,
+    //           r1, ..., cart_comm, ...);
+    //
+    // ++i;
+
+    MPI_Cart_shift(cart_comm, dim, -1, &r0, &r1);
+    MPI_Isend(&currentfield, 1, inner_layer[2], r0, MPI_ANY_TAG, cart_comm,
+              &req);
+    MPI_Irecv(&currentfield, 1, ghost_layer[2], r0, MPI_ANY_TAG, cart_comm,
+              &req);
+
+    ++i;  // wieviele req[i] brauche ich?? TODO
+    MPI_Isend(&currentfield, 1, inner_layer[0], r1, MPI_ANY_TAG, cart_comm,
+              &req);  // eigtl. &req[i]
+    MPI_Irecv(&currentfield, 1, ghost_layer[0], r1, MPI_ANY_TAG, cart_comm,
+              &req);
+    ////////////////////////////////////
+    //
+    // MPI_Sendrecv(currentfield, 1, inner_layer[0], ghost_layer[2], tag_down,
+    //              currentfield, 1, ghost_layer[2], inner_layer[0], tag_up,
+    //              cart_comm, MPI_STATUS_IGNORE);
+    //              //
+    // MPI_Sendrecv(currentfield, 1, inner_layer[2], ghost_layer[0], tag_up,
+    //              currentfield, 1, ghost_layer[0], inner_layer[2], tag_down,
+    //              cart_comm, MPI_STATUS_IGNORE);
+    // // MPI_Sendrecv(array, 1, xr_boundary, nbr_right, tag_right, array, 1,
+    // //              xl_boundary, nbr_left, tag_left, MPI_COMM_WORLD,
+    // //              MPI_STATUS_IGNORE);
+    // // MPI_Sendrecv(array, 1, yd_boundary, nbr_down, tag_down, array, 1,
+    // //              yu_boundary, nbr_up, tag_up, MPI_COMM_WORLD,
+    // //              MPI_STATUS_IGNORE);
+
+    // /////////////////////////////////////////
+  }
+  MPI_Waitall(i, req, status);
+}
+void game(int width, int height, int num_timesteps, int global_sizes[2]) {
   char* currentfield = calloc(width * height, sizeof(char));
   char* newfield = calloc(width * height, sizeof(char));
 
@@ -206,15 +314,19 @@ void game(int width, int height, int num_timesteps,
   // filling_runner(currentfield, width, height);
   filling_random(currentfield, width, height);
   int time = 0;
-  write_field(currentfield, width, height, time);
+  write_field(currentfield, global_sizes[X], global_sizes[Y],
+              time);  // TODO kommis hier kommis schreiben globales Feld nicht
+                      // worker feld, bshit da game(lsizes) aufruf
 
   for (time = 1; time <= num_timesteps; time++) {
     // TODO 2: implement evolve function (see above)
-    // evolve(currentfield, newfield, width, height);
-    evolve_rank(currentfield, newfield, width, height);
-    write_field(newfield, width, height, time);
-    // TODO 3: implement SWAP of the fields
+    evolve(currentfield, newfield, width,
+           height);  // TODO: swap, exchange vor write
+    // evolve_rank(currentfield, newfield, width, height);
     swap_field(&currentfield, &newfield);
+    exchange(currentfield, width, height);
+    write_field(currentfield, global_sizes[X], global_sizes[Y], time);
+    // TODO 3: implement SWAP of the fields
   }
 
   free(currentfield);
@@ -223,16 +335,14 @@ void game(int width, int height, int num_timesteps,
 
 int main(int c, char** v) {
   MPI_Init(&c, &v);
-  if (rank == 0) {
-    mkdir("./gol/", 0777);
-  }
-  int width, height, num_timesteps;
-  int process_numX;
-  int process_numY;
+  // if (rank == 0) {
+  //   mkdir("./gol/", 0777);
+  // }
+  int width, height, num_timesteps;  // check
+  int process_numX;                  // check
+  int process_numY;                  // check
   int worker_size_N_in_x, worker_size_N_in_y;
 
-  const int periodic_boundaries_true[] = {0, 0};
-  int coords_of_proc[2];  // cartesian coords of process;
   int start_worker_inner_offset[2];
   int start_worker_offset[2];
   if (c == 6) {
@@ -256,7 +366,7 @@ int main(int c, char** v) {
     myexit("Too less arguments");
   }
 
-  // TODO get the global rank of the process and save it to rank_global
+  // TODO get the global rank of the process and save it  rank_global
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);  //-
   // TODO get the number of processes and save it to num_tasks variable
   MPI_Comm_size(MPI_COMM_WORLD, &num_tasks);  //-
@@ -271,10 +381,11 @@ int main(int c, char** v) {
   /* TODO Create a new cartesian communicator of the worker communicator and
    * get the information.
    */
-  const int process_dim_array[2] = {process_numX, process_numY};
+  process_dim_array[X] = process_numX;
+  process_dim_array[Y] = process_numY;
 
   int ierr = MPI_Cart_create(MPI_COMM_WORLD, 2, process_dim_array,
-                             periodic_boundaries_true, 0, &cart_comm);
+                             periodic_boundaries_true, 1, &cart_comm);
   // if (MPI_SUCCESS == ierr)
   //   printf("MPI CART Created");
   // else
@@ -282,9 +393,9 @@ int main(int c, char** v) {
   MPI_Comm_rank(cart_comm, &rank_cart);
   MPI_Cart_coords(cart_comm, rank_cart, 2, coords_of_proc);
 
-  global_sizes[0] = (worker_size_N_in_x * process_numX) + 2;
-  global_sizes[1] =
-      (worker_size_N_in_y * process_numY) + 2;  // 2 fuer randaustausch
+  global_sizes[0] = (worker_size_N_in_x * process_numX);
+  global_sizes[1] = (worker_size_N_in_y * process_numY);
+  // +2 fuer randaustausch ??notwendig?
   // global size of the domain without boundaries
   worker_inner_sizes[0] = worker_size_N_in_x - 2;
   worker_inner_sizes[1] = worker_size_N_in_y - 2;
@@ -311,19 +422,19 @@ int main(int c, char** v) {
       start_worker_inner_offset[Y]);
   // sleep(100);
   printf(
-      "FILETYPE %d: globalsizes %d %d, worker_inner_sizes %d %d, start %d %d\n",
+      "FILETYPE %d: globalsizes %d %d, worker_inner_sizes %d %d, start %d "
+      "%d\n",
       rank, global_sizes[X], global_sizes[Y], worker_sizes[X], worker_sizes[Y],
       start_worker_offset[X], start_worker_offset[Y]);
   //========= MEMTYPE =================
   MPI_Type_create_subarray(2, worker_sizes, worker_inner_sizes,
-                           start_worker_inner_offset, MPI_ORDER_FORTRAN,
-                           MPI_CHAR,
+                           start_worker_inner_offset, MPI_ORDER_C, MPI_CHAR,
                            &memtype);  // ERROR
   MPI_Type_commit(&memtype);
 
   //========  FILETYPE ================
   MPI_Type_create_subarray(2, global_sizes, worker_inner_sizes,
-                           start_worker_offset, MPI_ORDER_FORTRAN, MPI_CHAR,
+                           start_worker_offset, MPI_ORDER_C, MPI_CHAR,
                            &filetype);
   MPI_Type_commit(&filetype);
   /* TODO Create a derived datatype that describes the layout of the inner
@@ -332,8 +443,9 @@ int main(int c, char** v) {
    * 'memtype'.
    */
 
-  game(worker_inner_sizes[X], worker_inner_sizes[Y], num_timesteps,
-       start_worker_inner_offset);
+  game(worker_sizes[X], worker_sizes[Y], num_timesteps,
+       global_sizes);  // TODO kommis haben worker_sizes[] als w
+                       // und h und als 4ten parameter global sizes
 
   MPI_Finalize();
 }
