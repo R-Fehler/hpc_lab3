@@ -1,0 +1,20 @@
+#!/bin/bash
+rm logprogram logtime
+for (( i = 0; i < 5; i++ )); do
+    echo "\n lauf nr. :" >>logtime
+   echo "$i" >>logtime
+   echo "problemgr: 1024">>logtime
+(time ./gameoflife 1024 1024 20)>>logprogram 2>>logtime
+done
+for (( i = 0; i < 5; i++ )); do
+    echo "\n lauf nr. :" >>logtime
+   echo "$i" >>logtime
+   echo "problemgr: 2048">>logtime
+(time ./gameoflife 2048 2048 20)>>logprogram 2>>logtime
+done
+for (( i = 0; i < 5; i++ )); do
+    echo "\n lauf nr. :" >>logtime
+   echo "$i" >>logtime
+   echo "problemgr: 4096">>logtime
+(time ./gameoflife 4096 4096 20)>>logprogram 2>>logtime
+done

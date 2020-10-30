@@ -1,0 +1,15 @@
+mpiexec -np 4 ./build/gameoflife_mpi 2 2 512 512 15    0,76s user 0,21s  system 327% cpu 0,298 total
+mpiexec -np 4 ./build/gameoflife_mpi 2 2 512 512 15    0,71s user 0,20s  system 335% cpu 0,272 total
+mpiexec -np 4 ./build/gameoflife_mpi 2 2 512 512 15    0,73s user 0,21s  system 335% cpu 0,278 total
+mpiexec -np 4 ./build/gameoflife_mpi 2 2 512 512 15    0,83s user 0,21s  system 342% cpu 0,302 total
+mpiexec -np 4 ./build/gameoflife_mpi 2 2 512 512 15    0,84s user 0,23s  system 341% cpu 0,314 total
+mpiexec -np 4 ./build/gameoflife_mpi 2 2 1024 1024 15  2,12s user 0,23s  system 363% cpu 0,645 total
+mpiexec -np 4 ./build/gameoflife_mpi 2 2 1024 1024 15  2,25s user 0,26s  system 364% cpu 0,690 total
+mpiexec -np 4 ./build/gameoflife_mpi 2 2 1024 1024 15  2,64s user 0,25s  system 369% cpu 0,784 total
+mpiexec -np 4 ./build/gameoflife_mpi 2 2 1024 1024 15  2,68s user 0,26s  system 369% cpu 0,795 total
+mpiexec -np 4 ./build/gameoflife_mpi 2 2 1024 1024 15  2,13s user 0,24s  system 340% cpu 0,695 total
+mpiexec -np 4 ./build/gameoflife_mpi 2 2 2048 2048 15  9,68s user 0,38s  system 368% cpu 2,733 total
+mpiexec -np 4 ./build/gameoflife_mpi 2 2 2048 2048 15  9,47s user 0,37s  system 371% cpu 2,650 total
+mpiexec -np 4 ./build/gameoflife_mpi 2 2 2048 2048 15  8,72s user 0,41s  system 364% cpu 2,507 total
+mpiexec -np 4 ./build/gameoflife_mpi 2 2 2048 2048 15  10,06s user 0,40s system 365% cpu 2,867 total
+mpiexec -np 4 ./build/gameoflife_mpi 2 2 2048 2048 15  9,71s user 0,37s  system 366% cpu 2,754 total
